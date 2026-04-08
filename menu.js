@@ -283,9 +283,10 @@ function cleanupSubscription(){
 }
 
 
-function goToBattlePage(){
+async function goToBattlePage(){
   if (battleNavigating || !currentRoomCode || !currentSlot) return;
   battleNavigating = true;
+  try { await cancelDisconnectHandler(); } catch {}
   localStorage.setItem('gy_battle_room_code', currentRoomCode);
   localStorage.setItem('gy_battle_slot', currentSlot);
   localStorage.setItem('gy_battle_faction', selectedFaction || '');
@@ -350,6 +351,20 @@ async function setupDisconnectHandler(){
     else await onDisconnect(ref(db, `rooms/${currentRoomCode}/players/${slot}`)).set({ joined:false, name:'', faction:'', role:'', ready:false, clientId:'' });
   } catch (e) {
     console.warn('onDisconnect setup failed', e);
+  }
+}
+
+async function cancelDisconnectHandler(){
+  if (!currentRoomCode || !currentSlot) return;
+  try {
+    await onDisconnect(roomRef(currentRoomCode)).cancel();
+  } catch (e) {
+    console.warn('cancel room onDisconnect failed', e);
+  }
+  try {
+    await onDisconnect(ref(db, `rooms/${currentRoomCode}/players/${currentSlot}`)).cancel();
+  } catch (e) {
+    console.warn('cancel player onDisconnect failed', e);
   }
 }
 
