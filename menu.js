@@ -294,7 +294,7 @@ async function cancelDisconnectHandler(){
   }
 }
 
-async async function goToBattlePage(){
+
   if (battleNavigating || !currentRoomCode || !currentSlot) return;
   battleNavigating = true;
   await cancelDisconnectHandler();
