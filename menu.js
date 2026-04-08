@@ -312,7 +312,7 @@ function subscribeRoom(code){
     }
 
     roomData = data;
-    if (data.phase === 'starting') {
+    if ((data.phase === 'starting' || data.phase === 'playing') && data.battle) {
       render();
       setStatus('戰鬥即將開始，正在進入戰鬥頁…');
       showToast('正在進入戰鬥頁');
@@ -462,7 +462,7 @@ async function startBattle(){
   const now = Date.now();
 
   await update(roomRef(currentRoomCode), {
-    phase: 'starting',
+    phase: 'playing',
     startedAt: now,
     battle: {
       createdAt: now,

@@ -37,7 +37,7 @@ body{margin:0;padding:12px 0 0;min-height:100vh;color:white;font-family:"Microso
   <div class="hp-visual-container" id="hp-box-O"><div id="hp-val-O" class="hp-text">100%</div><img src="left-hp-bar.png" class="hp-img-base hp-bg"><img src="left-hp-bar.png" id="hp-ghost-O" class="hp-img-base hp-ghost"><img src="left-hp-bar.png" id="hp-fill-O" class="hp-img-base hp-fill"></div>
   <div class="side-panel-wrap">
     <div class="side-panel active-side-O" id="panel-O">
-      <img src="mage.png" class="avatar" id="avatar-O" alt="P1">
+      <img src="" class="avatar" id="avatar-O" alt="P1">
       <div class="resource-col ult-col"><div class="resource-tag ult">充能</div><div class="ult-column-vertical" id="ult-display-O"></div><div class="ult-readout" id="ult-text-O">ULT 0 / 100</div><div class="buff-readout" id="buff-text-O">直排：當下回復 8 HP</div></div>
       <div class="resource-col sp-col"><div class="identity-badge my" id="badge-O">光 / O</div><div class="sp-column-vertical" id="sp-display-O"></div><div class="sp-readout" id="sp-text-O">SP 0 / 100</div></div>
     </div>
@@ -47,7 +47,7 @@ body{margin:0;padding:12px 0 0;min-height:100vh;color:white;font-family:"Microso
     <div class="side-panel active-side-X" id="panel-X">
       <div class="resource-col sp-col"><div class="identity-badge enemy" id="badge-X">暗 / X</div><div class="sp-column-vertical" id="sp-display-X"></div><div class="sp-readout" id="sp-text-X">SP 0 / 100</div></div>
       <div class="resource-col ult-col"><div class="resource-tag ult">充能</div><div class="ult-column-vertical" id="ult-display-X"></div><div class="ult-readout" id="ult-text-X">ULT 0 / 100</div><div class="buff-readout" id="buff-text-X">直排增加傷害</div></div>
-      <img src="knight.png" class="avatar" id="avatar-X" alt="P2">
+      <img src="" class="avatar" id="avatar-X" alt="P2">
     </div>
   </div>
   <div class="hp-visual-container" id="hp-box-X"><div id="hp-val-X" class="hp-text">100%</div><img src="right-hp-bar.png" class="hp-img-base hp-bg"><img src="right-hp-bar.png" id="hp-ghost-X" class="hp-img-base hp-ghost"><img src="right-hp-bar.png" id="hp-fill-X" class="hp-img-base hp-fill"></div>
@@ -76,76 +76,48 @@ let PLAYER_CONFIG = {
   O: { faction: '', role: '', name: '' },
   X: { faction: '', role: '', name: '' }
 };
+let remoteBattleReady = false;
+
+function showSyncStatus(message){
+  const turnTextEl = document.getElementById('turnText');
+  if (turnTextEl) turnTextEl.textContent = message;
+  const timerEl = document.getElementById('timer-container');
+  if (timerEl) timerEl.textContent = '--';
+}
+
 function applyBattleSelections(){
   ['O','X'].forEach(slot=>{
     const cfg = PLAYER_CONFIG[slot] || {};
-    const faction = cfg.faction || (slot==='O' ? 'light' : 'dark');
-    const role = cfg.role || (slot==='O' ? 'mage' : 'assassin');
+    const faction = cfg.faction || '';
+    const role = cfg.role || '';
     const badge = document.getElementById(`badge-${slot}`);
-    if (badge) badge.textContent = `${FACTION_LABEL[faction] || faction} / ${slot}`;
+    if (badge) badge.textContent = faction ? `${FACTION_LABEL[faction] || faction} / ${slot}` : `等待同步 / ${slot}`;
     const avatar = document.getElementById(`avatar-${slot}`);
-    if (avatar && ROLE_IMAGE[role]) { avatar.src = ROLE_IMAGE[role]; avatar.alt = `${ROLE_LABEL[role]||role}-${slot}`; }
+    if (avatar) {
+      if (role && ROLE_IMAGE[role]) {
+        avatar.src = ROLE_IMAGE[role];
+        avatar.alt = `${ROLE_LABEL[role]||role}-${slot}`;
+        avatar.style.visibility = 'visible';
+      } else {
+        avatar.removeAttribute('src');
+        avatar.alt = `waiting-${slot}`;
+        avatar.style.visibility = 'hidden';
+      }
+    }
     const buff = document.getElementById(`buff-text-${slot}`);
-    if (buff) buff.textContent = faction==='light' ? '直排：當下回復 8 HP' : `直排增加傷害（${(window.data && data[slot] ? data[slot].darkStacks : 0)} 層）`;
+    if (buff) {
+      if (!faction) buff.textContent = '等待戰鬥資料同步';
+      else buff.textContent = faction==='light' ? '直排：當下回復 8 HP' : `直排增加傷害（${(window.data && data[slot] ? data[slot].darkStacks : 0)} 層）`;
+    }
   });
   const turnTextEl = document.getElementById('turnText');
-  if (turnTextEl && window.turn) {
-    const faction = PLAYER_CONFIG[window.turn]?.faction || (window.turn==='O' ? 'light' : 'dark');
-    turnTextEl.textContent = `目前回合：${FACTION_LABEL[faction] || faction} / ${window.turn}`;
+  if (turnTextEl) {
+    if (!remoteBattleReady) turnTextEl.textContent = '戰鬥資料同步中…';
+    else {
+      const faction = PLAYER_CONFIG[window.turn]?.faction || '';
+      turnTextEl.textContent = `目前回合：${FACTION_LABEL[faction] || faction || '?'} / ${window.turn}`;
+    }
   }
-}
-async function loadBattleSelections(){
-  const params = new URLSearchParams(location.search);
-  const roomCode = params.get('room') || localStorage.getItem('gy_battle_room_code');
-  if (!db || !roomCode || roomCode==='LOCAL') { applyBattleSelections(); return; }
-  try {
-    const snap = await db.ref(`rooms/${roomCode}`).get();
-    const room = snap.exists() ? snap.val() : null;
-    if (!room) { applyBattleSelections(); return; }
-
-    const cfg = room?.battle?.playerConfig || null;
-    const players = room?.players || null;
-
-    if (cfg?.O) {
-      PLAYER_CONFIG.O = {
-        faction: cfg.O.faction || '',
-        role: cfg.O.role || '',
-        name: cfg.O.name || ''
-      };
-    } else if (players?.O) {
-      PLAYER_CONFIG.O = {
-        faction: players.O.faction || '',
-        role: players.O.role || '',
-        name: players.O.name || ''
-      };
-    }
-
-    if (cfg?.X) {
-      PLAYER_CONFIG.X = {
-        faction: cfg.X.faction || '',
-        role: cfg.X.role || '',
-        name: cfg.X.name || ''
-      };
-    } else if (players?.X) {
-      PLAYER_CONFIG.X = {
-        faction: players.X.faction || '',
-        role: players.X.role || '',
-        name: players.X.name || ''
-      };
-    }
-
-    const battle = room?.battle || null;
-    if (battle?.turn) {
-      turn = battle.turn;
-      window.turn = turn;
-    }
-    if (battle?.data) data = battle.data;
-    if (Array.isArray(battle?.grid)) grid = battle.grid;
-    if (battle?.queues) queues = battle.queues;
-    if (typeof battle?.placedThisTurn === 'boolean') placedThisTurn = battle.placedThisTurn;
-    if (typeof battle?.timeLeft === 'number') timeLeft = battle.timeLeft;
-  } catch (e) { console.warn('loadBattleSelections failed', e); }
-  applyBattleSelections();
 }
 </script>
 <script>
@@ -164,7 +136,7 @@ let battleTurnEndsAt=0, roomListener=null, syncingFromRemote=false, writingBattl
 function buildBoard(){const board=document.getElementById('board');board.innerHTML='';for(let i=0;i<9;i++){const d=document.createElement('div');d.className='cell';d.id='c-'+i;d.onclick=()=>tap(i);board.appendChild(d)}}
 function playSound(name){const s=sounds[name]; if(s){s.pause(); s.currentTime=0; s.play().catch(()=>{});}} 
 function stopSound(name){const s=sounds[name]; if(s){s.pause(); s.currentTime=0;}}
-function canAct(){ return roomCode!=='LOCAL' ? (!syncingFromRemote && !writingBattle && turn===mySlot && !isGameOver() && !resolving) : (!isGameOver() && !resolving); }
+function canAct(){ return roomCode!=='LOCAL' ? (remoteBattleReady && !syncingFromRemote && !writingBattle && turn===mySlot && !isGameOver() && !resolving) : (!isGameOver() && !resolving); }
 function battlePayload(){ return { turn, turnEndsAt:battleTurnEndsAt, placedThisTurn, resolving, timeLeft, playerConfig:PLAYER_CONFIG, data, grid, queues, lastEvent:{ player:mySlot, ts:Date.now(), type:'sync' } }; }
 async function saveBattle(extra={}){ if(!db || roomCode==='LOCAL') return; writingBattle=true; try{ await db.ref(`rooms/${roomCode}/battle`).update({ ...battlePayload(), ...extra, lastEvent:{ player:mySlot, ts:Date.now(), type:extra.lastEventType||'sync' } }); } finally { writingBattle=false; } }
 function startTimer(){ clearInterval(timer); stopSound('tick'); timer=setInterval(()=>{
@@ -195,36 +167,97 @@ function showUltReadyTip(p){const tip=document.getElementById('ultReadyTip'); ti
 async function castUlt(){const p=turn; if(!canAct()||(data[p].ult||0)<100) return; data[p].ult=0; showFloatText(`hp-box-${p}`, 'ULT!', '#ffd36d', 0, 10); updateUI(); await saveBattle({ lastEventType:'ult' });}
 function isGameOver(){return data.O.hp<=0||data.X.hp<=0}
 async function checkEnd(){if(!isGameOver()) return; clearInterval(timer); stopSound('tick'); const winner=data.O.hp<=0?'X':'O'; if(db && roomCode!=='LOCAL'){ await db.ref(`rooms/${roomCode}`).update({ phase:'closed', winner, battle:battlePayload() }); } const overlay=document.getElementById('resultOverlay'); const card=document.getElementById('resultCard'); const title=document.getElementById('resultTitle'); const sub=document.getElementById('resultSub'); card.className='result-card '+(winner===mySlot?'win':'lose'); title.textContent=winner==='O'?'光方勝利':'暗方勝利'; sub.textContent=`${winner===mySlot?'你獲勝':'你落敗'}｜${winner}`; overlay.classList.add('show');}
+function isBattlePayloadComplete(room){
+  const battle = room?.battle || null;
+  const cfg = battle?.playerConfig || null;
+  return !!(room?.phase === 'playing' && cfg?.O?.role && cfg?.X?.role && battle?.data?.O && battle?.data?.X && typeof battle?.turn === 'string');
+}
+
 function applyRemoteRoom(room){
-  const cfg = room?.battle?.playerConfig || null; const players = room?.players || null; const battle = room?.battle || null;
+  const cfg = room?.battle?.playerConfig || null;
+  const players = room?.players || null;
+  const battle = room?.battle || null;
+
   if (cfg?.O) PLAYER_CONFIG.O = { faction: cfg.O.faction || '', role: cfg.O.role || '', name: cfg.O.name || '' };
-  else if (players?.O) PLAYER_CONFIG.O = { faction: players.O.faction || '', role: players.O.role || '', name: players.O.name || '' };
+  else if (players?.O?.role && players?.O?.faction) PLAYER_CONFIG.O = { faction: players.O.faction || '', role: players.O.role || '', name: players.O.name || '' };
+  else PLAYER_CONFIG.O = { faction:'', role:'', name:'' };
+
   if (cfg?.X) PLAYER_CONFIG.X = { faction: cfg.X.faction || '', role: cfg.X.role || '', name: cfg.X.name || '' };
-  else if (players?.X) PLAYER_CONFIG.X = { faction: players.X.faction || '', role: players.X.role || '', name: players.X.name || '' };
-  if (battle?.turn) { turn=battle.turn; window.turn=turn; }
-  if (battle?.data) data=battle.data;
-  if (Array.isArray(battle?.grid)) grid=battle.grid; else if (battle?.grid && typeof battle.grid==='object'){ const arr=Array(9).fill(null); Object.keys(battle.grid).forEach(k=>arr[Number(k)]=battle.grid[k]); grid=arr; }
-  if (battle?.queues) queues=battle.queues;
-  if (typeof battle?.placedThisTurn==='boolean') placedThisTurn=battle.placedThisTurn;
-  resolving=!!battle?.resolving;
-  if (typeof battle?.turnEndsAt==='number') battleTurnEndsAt=battle.turnEndsAt;
-  if (typeof battle?.timeLeft==='number') timeLeft=battle.timeLeft;
-  render(); applyBattleSelections(); updateUI();
+  else if (players?.X?.role && players?.X?.faction) PLAYER_CONFIG.X = { faction: players.X.faction || '', role: players.X.role || '', name: players.X.name || '' };
+  else PLAYER_CONFIG.X = { faction:'', role:'', name:'' };
+
+  remoteBattleReady = isBattlePayloadComplete(room);
+  if (!remoteBattleReady) {
+    clearInterval(timer);
+    placedThisTurn = false;
+    resolving = false;
+    grid = Array(9).fill(null);
+    queues = {O:[], X:[]};
+    showSyncStatus('房間資料不完整，請返回重建房間');
+    render();
+    applyBattleSelections();
+    updateUI();
+    const endBtn=document.getElementById('endTurnBtn'); if(endBtn) endBtn.disabled=true;
+    return;
+  }
+
+  turn = battle.turn; window.turn = turn;
+  data = battle.data;
+  if (Array.isArray(battle?.grid)) grid = battle.grid;
+  else if (battle?.grid && typeof battle.grid==='object'){ const arr=Array(9).fill(null); Object.keys(battle.grid).forEach(k=>arr[Number(k)] = battle.grid[k]); grid=arr; }
+  else grid = Array(9).fill(null);
+  queues = battle?.queues || {O:[], X:[]};
+  if (typeof battle?.placedThisTurn==='boolean') placedThisTurn = battle.placedThisTurn; else placedThisTurn = false;
+  resolving = !!battle?.resolving;
+  battleTurnEndsAt = typeof battle?.turnEndsAt==='number' ? battle.turnEndsAt : (Date.now()+60000);
+  timeLeft = typeof battle?.timeLeft==='number' ? battle.timeLeft : 60;
+
+  render();
+  applyBattleSelections();
+  updateUI();
+  startTimer();
   if ((room?.phase==='closed' || room?.winner) && isGameOver()) checkEnd();
 }
+
 async function loadBattleSelections(){
-  if (!db || !roomCode || roomCode==='LOCAL') { applyBattleSelections(); return; }
+  if (!db || roomCode==='LOCAL') { remoteBattleReady = true; applyBattleSelections(); startTimer(); updateUI(); return; }
   try {
+    const firstSnap = await db.ref(`rooms/${roomCode}`).get();
+    const firstRoom = firstSnap.exists() ? firstSnap.val() : null;
+    if (!firstRoom) {
+      remoteBattleReady = false;
+      showSyncStatus('找不到房間資料，請返回重建房間');
+      applyBattleSelections();
+      updateUI();
+      return;
+    }
+    syncingFromRemote = true;
+    try { applyRemoteRoom(firstRoom); } finally { syncingFromRemote = false; }
+
     roomListener = db.ref(`rooms/${roomCode}`);
     roomListener.on('value', (snap)=>{
-      const room=snap.val(); if(!room) return; syncingFromRemote=true; try{ applyRemoteRoom(room); } finally { syncingFromRemote=false; }
+      const room=snap.val();
+      syncingFromRemote = true;
+      try {
+        if (!room) {
+          remoteBattleReady = false;
+          showSyncStatus('房間不存在，請返回重建房間');
+          updateUI();
+          return;
+        }
+        applyRemoteRoom(room);
+      } finally { syncingFromRemote = false; }
     });
-  } catch (e) { console.warn('loadBattleSelections failed', e); }
-  applyBattleSelections();
+  } catch (e) {
+    remoteBattleReady = false;
+    console.warn('loadBattleSelections failed', e);
+    showSyncStatus('同步失敗，請返回重建房間');
+    updateUI();
+  }
 }
 document.getElementById('btnRematch').onclick=()=>location.reload(); document.getElementById('btnBackMenu').onclick=()=>location.href='menu.html'; const endBtn=document.getElementById('endTurnBtn'); if(endBtn) endBtn.onclick=()=>swapTurn();
 document.addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault(); castUlt();}});
 window.addEventListener('beforeunload', ()=>{ if (roomListener && roomCode!=='LOCAL') roomListener.off(); clearInterval(timer); stopSound('tick'); });
-buildBoard(); startTimer(); updateUI(); loadBattleSelections();
+buildBoard(); applyBattleSelections(); updateUI(); loadBattleSelections();
 </script></script>
 </body></html>
