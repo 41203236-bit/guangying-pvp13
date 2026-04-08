@@ -85,25 +85,36 @@ function showSyncStatus(message){
   if (timerEl) timerEl.textContent = '--';
 }
 
+function setAvatarForSlot(slot, role){
+  const avatar = document.getElementById(`avatar-${slot}`);
+  if (!avatar) return;
+  const img = role && ROLE_IMAGE[role] ? ROLE_IMAGE[role] : '';
+  if (img) {
+    const resolved = new URL(img, `${window.location.origin}${window.location.pathname}`).href;
+    avatar.setAttribute('src', resolved);
+    avatar.dataset.role = role;
+    avatar.style.visibility = 'visible';
+    avatar.style.display = 'block';
+    avatar.style.opacity = '1';
+  } else {
+    avatar.removeAttribute('src');
+    avatar.dataset.role = '';
+    avatar.style.visibility = 'hidden';
+    avatar.style.display = 'block';
+    avatar.style.opacity = '0';
+  }
+}
+
 function applyBattleSelections(){
   ['O','X'].forEach(slot=>{
     const cfg = PLAYER_CONFIG[slot] || {};
     const faction = cfg.faction || '';
-    const role = cfg.role || '';
+    const role = (cfg.role || '').trim();
     const badge = document.getElementById(`badge-${slot}`);
     if (badge) badge.textContent = faction ? `${FACTION_LABEL[faction] || faction} / ${slot}` : `等待同步 / ${slot}`;
+    setAvatarForSlot(slot, role);
     const avatar = document.getElementById(`avatar-${slot}`);
-    if (avatar) {
-      if (role && ROLE_IMAGE[role]) {
-        avatar.src = ROLE_IMAGE[role];
-        avatar.alt = `${ROLE_LABEL[role]||role}-${slot}`;
-        avatar.style.visibility = 'visible';
-      } else {
-        avatar.removeAttribute('src');
-        avatar.alt = `waiting-${slot}`;
-        avatar.style.visibility = 'hidden';
-      }
-    }
+    if (avatar) avatar.alt = role ? `${ROLE_LABEL[role]||role}-${slot}` : `waiting-${slot}`;
     const buff = document.getElementById(`buff-text-${slot}`);
     if (buff) {
       if (!faction) buff.textContent = '等待戰鬥資料同步';
