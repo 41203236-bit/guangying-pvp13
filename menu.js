@@ -283,10 +283,22 @@ function cleanupSubscription(){
 }
 
 
+async function cancelDisconnectHandler(){
+  if (!currentRoomCode || !currentSlot) return;
+  try {
+    const r = roomRef(currentRoomCode);
+    const slotRef = ref(db, `rooms/${currentRoomCode}/players/${currentSlot}`);
+    await onDisconnect(r).cancel();
+    await onDisconnect(slotRef).cancel();
+  } catch (e) {
+    console.warn('cancelDisconnectHandler failed', e);
+  }
+}
+
 async function goToBattlePage(){
   if (battleNavigating || !currentRoomCode || !currentSlot) return;
   battleNavigating = true;
-  try { await cancelDisconnectHandler(); } catch {}
+  await cancelDisconnectHandler();
   localStorage.setItem('gy_battle_room_code', currentRoomCode);
   localStorage.setItem('gy_battle_slot', currentSlot);
   localStorage.setItem('gy_battle_faction', selectedFaction || '');
@@ -317,7 +329,7 @@ function subscribeRoom(code){
       render();
       setStatus('戰鬥即將開始，正在進入戰鬥頁…');
       showToast('正在進入戰鬥頁');
-      setTimeout(goToBattlePage, 180);
+      setTimeout(() => { goToBattlePage(); }, 180);
       return;
     }
     const me = data.players?.[currentSlot];
@@ -351,20 +363,6 @@ async function setupDisconnectHandler(){
     else await onDisconnect(ref(db, `rooms/${currentRoomCode}/players/${slot}`)).set({ joined:false, name:'', faction:'', role:'', ready:false, clientId:'' });
   } catch (e) {
     console.warn('onDisconnect setup failed', e);
-  }
-}
-
-async function cancelDisconnectHandler(){
-  if (!currentRoomCode || !currentSlot) return;
-  try {
-    await onDisconnect(roomRef(currentRoomCode)).cancel();
-  } catch (e) {
-    console.warn('cancel room onDisconnect failed', e);
-  }
-  try {
-    await onDisconnect(ref(db, `rooms/${currentRoomCode}/players/${currentSlot}`)).cancel();
-  } catch (e) {
-    console.warn('cancel player onDisconnect failed', e);
   }
 }
 
