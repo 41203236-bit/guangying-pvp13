@@ -1,5 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
-import { getDatabase, ref, get, set, update, onValue, remove } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
+import { getDatabase, ref, get, set, update, onValue, remove, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
 import { firebaseConfig } from './firebase-config.js';
 
 const app = initializeApp(firebaseConfig);
@@ -48,7 +48,6 @@ const ROLE_DATA = {
 };
 
 const FACTION_TEXT = { light: '光 / O', dark: '暗 / X' };
-const ROOMS_PATH = 'rooms_v2';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -164,7 +163,8 @@ function requireSetup(actionLabel){
   return false;
 }
 
-function roomRef(code){ return ref(db, `${ROOMS_PATH}/${code}`); }
+const ROOMS_ROOT = 'rooms_v2';
+function roomRef(code){ return ref(db, `${ROOMS_ROOT}/${code}`); }
 function codeGen(){ return Math.random().toString(36).slice(2,8).toUpperCase(); }
 function playerPath(slot, key=''){ return `players/${slot}${key ? '/' + key : ''}`; }
 function formatState(joined, ready){ if(!joined) return ['未加入', 'bad']; if(ready) return ['已準備', 'ok']; return ['未準備', 'warn']; }
@@ -284,9 +284,20 @@ function cleanupSubscription(){
 }
 
 
-function goToBattlePage(){
+async function cancelDisconnectHandler(){
+  if (!currentRoomCode || !currentSlot) return;
+  try {
+    await onDisconnect(roomRef(currentRoomCode)).cancel();
+    await onDisconnect(ref(db, `${ROOMS_ROOT}/${currentRoomCode}/players/${currentSlot}`)).cancel();
+  } catch (e) {
+    console.warn('onDisconnect cancel failed', e);
+  }
+}
+
+async async function goToBattlePage(){
   if (battleNavigating || !currentRoomCode || !currentSlot) return;
   battleNavigating = true;
+  await cancelDisconnectHandler();
   localStorage.setItem('gy_battle_room_code', currentRoomCode);
   localStorage.setItem('gy_battle_slot', currentSlot);
   localStorage.setItem('gy_battle_faction', selectedFaction || '');
@@ -325,7 +336,7 @@ function subscribeRoom(code){
     const prevFoe = previous?.players?.[foeSlot];
     const nowFoe = data.players?.[foeSlot];
 
-    if (previous && currentSlot && prevFoe?.joined && !nowFoe?.joined && data.phase === 'lobby') {
+    if (previous && currentSlot && prevFoe?.joined && !nowFoe?.joined) {
       showEventOverlay('對手已離開房間', '你的對手已經離開。你可以等待新玩家加入，或離開後重新建房。', '按下關閉後，房間會保留給你繼續等待。');
       setStatus('對手已離開房間，你可以等待新玩家加入或重新建房。');
     }
@@ -342,7 +353,16 @@ function subscribeRoom(code){
 }
 
 async function setupDisconnectHandler(){
-  return;
+  if (!currentRoomCode || !currentSlot) return;
+  const r = roomRef(currentRoomCode);
+  const slot = currentSlot;
+  const isHost = roomData?.hostSlot === slot;
+  try {
+    if (isHost) await onDisconnect(r).remove();
+    else await onDisconnect(ref(db, `${ROOMS_ROOT}/${currentRoomCode}/players/${slot}`)).set({ joined:false, name:'', faction:'', role:'', ready:false, clientId:'' });
+  } catch (e) {
+    console.warn('onDisconnect setup failed', e);
+  }
 }
 
 async function createRoom(){
@@ -453,29 +473,9 @@ async function startBattle(){
   const firstTurn = Math.random() < 0.5 ? 'O' : 'X';
   const now = Date.now();
 
-  const nextRoom = {
-    ...(roomData || {}),
-    hostSlot: roomData?.hostSlot || 'O',
+  await update(roomRef(currentRoomCode), {
     phase: 'playing',
     startedAt: now,
-    players: {
-      O: {
-        joined: true,
-        ready: !!playerO.ready,
-        name: playerO.name || '',
-        faction: playerO.faction || '',
-        role: playerO.role || '',
-        clientId: playerO.clientId || ''
-      },
-      X: {
-        joined: true,
-        ready: !!playerX.ready,
-        name: playerX.name || '',
-        faction: playerX.faction || '',
-        role: playerX.role || '',
-        clientId: playerX.clientId || ''
-      }
-    },
     battle: {
       createdAt: now,
       turn: firstTurn,
@@ -521,9 +521,7 @@ async function startBattle(){
         X: []
       }
     }
-  };
-
-  await set(roomRef(currentRoomCode), nextRoom);
+  });
 
   showToast('房間已開始，正在進入戰鬥頁…');
   setStatus('雙方準備完成，正在進入戰鬥頁。');
